@@ -7,3 +7,6 @@ venv/
 .idea/
 .vscode/
 logs/
+
+# Streamlit — 실제 시크릿은 커밋 금지, example 만 추적한다
+.streamlit/secrets.toml

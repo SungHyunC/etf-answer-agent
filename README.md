@@ -5,7 +5,11 @@
 
 ![python](https://img.shields.io/badge/python-3.10+-blue)
 ![langgraph](https://img.shields.io/badge/LangGraph-0.2+-0F5C52)
+![streamlit](https://img.shields.io/badge/Streamlit-Cloud-FF4B4B)
 ![license](https://img.shields.io/badge/license-MIT-green)
+
+**▶ 라이브 데모** — `배포 후 URL 기재` (Streamlit Community Cloud, `streamlit_app.py`)
+키 없이 `rule` 백엔드로 동작합니다. 배포 절차는 [DEPLOY.md 5-1절](DEPLOY.md#5-1-streamlit-community-cloud-채택).
 
 **핵심은 컴플라이언스 반려 루프입니다.** 검증을 통과하지 못한 답변은 고객에게
 나가지 않고 생성 단계로 되돌아가 재생성됩니다. 이 관문을 프롬프트 지시가 아니라
@@ -35,8 +39,9 @@
 
 ```bash
 pip install -r requirements.txt
+streamlit run streamlit_app.py  # 대고객 UI — 배포본과 동일 → http://localhost:8501
 python cli.py            # CLI 데모 (시나리오 5건 자동 실행 후 대화 모드)
-python app.py            # 웹 데모 UI → http://localhost:8000
+python app.py            # JSON API + /health + /metrics → http://localhost:8000
 python -m src.evaluate   # 평가 하네스 (목표 지표 측정)
 python tests/test_pipeline.py   # 단위 검증
 ```
@@ -173,9 +178,9 @@ cp .env.example .env    # 백엔드 전환은 이 파일에서
 | 프롬프트 최적화 | `SYSTEM` 프롬프트 분리 완료 → A/B 실험 하네스 필요 |
 | 워크플로우 튜닝 | 그래프 노드 분리 완료 → 조건부 분기 확장 여지 |
 | 외부 API 확장 | 정형 DB 어댑터 인터페이스 준비됨 → 실 시세·공시 API 연동 |
-| UI/UX 통합 | `app.py` 최소 UI 존재 → 스트리밍·대화 이력 필요 |
-| 배포 | 미구현 → 컨테이너화 + 헬스체크 |
-| 모니터링 지표 | `evaluate.py` 오프라인 측정 → 온라인 지표 수집 필요 |
+| UI/UX 통합 | Streamlit 대화형 UI(이력·근거 배지·처리경로) 완료 → 스트리밍 미구현 |
+| 배포 | Streamlit Community Cloud 배포 + 컨테이너화(`Dockerfile`) 완료 |
+| 모니터링 지표 | `monitoring.py` 온라인 수집 + `/metrics` · Prometheus 노출 완료 |
 
 ---
 

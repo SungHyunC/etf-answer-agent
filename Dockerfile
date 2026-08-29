@@ -1,6 +1,6 @@
 # ETF Answer Agent — 단일 서비스 이미지.
-# 애플리케이션이 표준 라이브러리 HTTP 서버 하나뿐이라 빌드 산출물이 없으므로
-# 멀티스테이지를 쓰지 않고 단일 스테이지로 단순하게 유지한다.
+# 빌드 산출물이 없으므로 멀티스테이지를 쓰지 않고 단일 스테이지로 유지한다.
+# 진입점 하나로 두 모드를 띄운다 — APP_MODE=streamlit(기본, 대고객 UI) / api(JSON+지표).
 FROM python:3.11-slim
 
 # PYTHONDONTWRITEBYTECODE : 읽기 전용 파일시스템에서도 돌도록 .pyc 를 만들지 않는다
@@ -25,14 +25,16 @@ COPY . .
 # logs 는 볼륨 마운트 지점이라 미리 만들어 소유권을 넘겨둔다.
 RUN useradd --create-home --uid 10001 appuser \
  && mkdir -p /app/logs \
+ && chmod +x /app/docker-entrypoint.sh \
  && chown -R appuser:appuser /app
 USER appuser
 
-EXPOSE 8000
+EXPOSE 8080
 
-# slim 이미지에는 curl 이 없으므로 표준 라이브러리 urllib 로 /health 를 확인한다.
+# slim 이미지에는 curl 이 없으므로 표준 라이브러리 urllib 로 확인한다.
 # urlopen 은 200 이 아니면 예외를 던지므로 종료 코드가 그대로 판정이 된다.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+# 헬스 경로는 모드마다 다르다 — Streamlit 은 /_stcore/health, API 는 /health.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+    CMD python -c "import os,urllib.request as u; p=os.environ.get('PORT','8080'); path='/health' if os.environ.get('APP_MODE')=='api' else '/_stcore/health'; u.urlopen(f'http://127.0.0.1:{p}{path}', timeout=3)"
 
-CMD ["python", "app.py"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

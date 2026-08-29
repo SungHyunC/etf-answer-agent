@@ -10,7 +10,7 @@ services:
     image: etf-answer-agent:local
     container_name: etf-agent
     ports:
-      - "8000:8000"
+      - "8080:8080"
 
     # .env 가 있으면 읽고, 없으면 그냥 넘어간다 (Compose v2.24+ 의 required 옵션).
     # 구버전 Compose 라면 이 블록을 지우고 `env_file: [.env]` 로 바꾼 뒤 파일을 만들어야 한다.
@@ -21,6 +21,9 @@ services:
     # env_file 보다 우선한다. 값을 비워두면 rule 백엔드로 뜬다.
     environment:
       LLM_BACKEND: ${LLM_BACKEND:-rule}
+      # streamlit = 대고객 UI(기본) / api = JSON + /health + /metrics
+      APP_MODE: ${APP_MODE:-streamlit}
+      PORT: "8080"
 
     # 애플리케이션 로그·감사 기록을 호스트에 남긴다.
     volumes:
@@ -34,8 +37,8 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+        - "import os,urllib.request as u; path='/health' if os.environ.get('APP_MODE')=='api' else '/_stcore/health'; u.urlopen(f'http://127.0.0.1:8080{path}', timeout=3)"
       interval: 30s
       timeout: 5s
-      start_period: 20s
+      start_period: 25s
       retries: 3

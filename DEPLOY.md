@@ -18,7 +18,7 @@ ETF Answer Agent 를 로컬 · 컨테이너 · 클라우드 · 온프레미스(�
 
 | 항목 | 현재 코드 | 필요한 상태 | 이유 |
 |---|---|---|---|
-| 바인드 주소 | `HTTPServer(("127.0.0.1", 8000), ...)` | `0.0.0.0` (또는 `HOST` 환경변수) | 컨테이너 내부 루프백만 열려 있으면 `-p 8000:8000` 으로 매핑해도 외부에서 닿지 않습니다. |
+| 바인드 주소 | `HTTPServer(("127.0.0.1", 8000), ...)` | `0.0.0.0` (또는 `HOST` 환경변수) | 컨테이너 내부 루프백만 열려 있으면 `-p 8080:8080` 으로 매핑해도 외부에서 닿지 않습니다. |
 | `/health` 엔드포인트 | 없음 (`/`, `/index.html` 외 404) | `GET /health` → 200 | Dockerfile · compose · 클라우드 로드밸런서의 헬스체크가 모두 이 경로를 봅니다. |
 
 `app.py` 는 이 문서의 담당 범위 밖이라 수정하지 않았습니다. 위 두 가지가 반영되기 전까지
@@ -31,7 +31,8 @@ ETF Answer Agent 를 로컬 · 컨테이너 · 클라우드 · 온프레미스(�
 ```bash
 pip install -r requirements.txt
 
-python app.py                    # 웹 데모 → http://localhost:8000
+streamlit run streamlit_app.py   # 대고객 UI → http://localhost:8501 (배포본과 동일)
+python app.py                    # JSON API + 지표 → http://localhost:8000
 python cli.py                    # CLI 데모
 python -m src.evaluate           # 평가 하네스
 python tests/test_pipeline.py    # 단위 검증
@@ -45,7 +46,7 @@ python tests/test_pipeline.py    # 단위 검증
 
 ```bash
 docker build -t etf-answer-agent:local .
-docker run -d --name etf-agent -p 8000:8000 \
+docker run -d --name etf-agent -p 8080:8080 \
   -e LLM_BACKEND=rule \
   etf-answer-agent:local
 
@@ -111,7 +112,58 @@ docker compose down
 
 ## 5. 클라우드 배포
 
-### AWS ECS (Fargate)
+배포처는 **Streamlit Community Cloud** 를 1순위로 잡았다. 이유는 세 가지다.
+
+| 후보 | 선택하지 않은 이유 |
+|---|---|
+| AWS App Runner · GCP Cloud Run · Azure Container Apps | 계정 생성에 **신용카드 등록**이 필수다. 프리티어를 넘기면 과금되므로, 데모 목적의 상시 노출 서비스로는 위험 대비 이득이 없다. |
+| Hugging Face Spaces | 카드는 불필요하나 별도 계정을 새로 만들어야 한다. |
+| **Streamlit Community Cloud** | **GitHub 계정으로 바로 로그인**, 카드 불필요, 이 저장소를 그대로 연결한다. Public 저장소는 무료이고 슬립되었다가 접속 시 깨어난다. |
+
+컨테이너 이미지가 필요한 배포처(App Runner / Cloud Run / Container Apps)를 쓸 경우를 대비해
+아래 5-2·5-3 절에 명령을 그대로 남겨 둔다. `Dockerfile` 은 세 곳 모두에서 수정 없이 동작한다.
+
+### 5-1. Streamlit Community Cloud (채택)
+
+진입점은 `streamlit_app.py` 다. 저장소 루트에 있고, `requirements.txt` 에 `streamlit` 이 포함되어 있다.
+
+```bash
+# 로컬에서 배포와 동일하게 확인
+streamlit run streamlit_app.py
+```
+
+배포 절차 — 브라우저에서 4단계다.
+
+1. https://share.streamlit.io 접속 → **Continue with GitHub** 로 로그인
+2. **Create app** → **Deploy a public app from GitHub**
+3. 값 입력
+   - Repository: `SungHyunC/etf-answer-agent`
+   - Branch: `main`
+   - Main file path: `streamlit_app.py`
+4. **Deploy** → 2~4분 빌드 후 `https://<앱이름>.streamlit.app` 발급
+
+**LLM 백엔드 전환(선택)** — 기본은 `rule` 이라 키 없이 뜬다.
+App settings → Secrets 에 아래를 붙여넣으면 `openai` 백엔드로 자동 전환된다.
+
+```toml
+OPENAI_API_KEY = "sk-..."
+OPENAI_MODEL = "gpt-4o-mini"
+```
+
+> ⚠️ 클라우드에는 로컬 GPU 가 없으므로 `local`(Ollama) 백엔드는 쓸 수 없다.
+> 성능 측정에 사용한 qwen2.5:14b 수치는 **로컬 실행 기준**이며, 배포본은 `rule` 또는 `openai` 로 동작한다.
+
+**운영 시 주의(튜토리얼 4개 항목 대응)**
+
+| 항목 | 이 서비스의 대응 |
+|---|---|
+| 동시 접속자 | Community Cloud 는 1 인스턴스 고정이라 스케일아웃이 없다. 부하가 늘면 Cloud Run(5-3)으로 옮긴다. |
+| 응답 속도 | `rule` 백엔드는 p95 15ms 내외. `openai` 로 바꾸면 1~3초로 늘어난다. |
+| 비용 | Public 앱 무료. 카드 미등록이라 과금 경로 자체가 없다. |
+| 보안 | 키는 코드가 아닌 Secrets 에만 둔다. `.gitignore` 에 `.streamlit/secrets.toml` 를 넣어 커밋을 막았다. |
+
+### 5-2. AWS ECS (Fargate)
+
 
 ```bash
 # 1) ECR 로그인 · 리포지터리 준비
@@ -130,23 +182,23 @@ aws ecs update-service --cluster etf --service etf-agent \
   --task-definition etf-agent:<REV> --region ap-northeast-2
 ```
 
-- 태스크 정의: 컨테이너 포트 `8000`, ALB 타깃 그룹 헬스체크 경로 `/health`
+- 태스크 정의: 컨테이너 포트 `8080`, ALB 타깃 그룹 헬스체크 경로 `/_stcore/health` (APP_MODE=api 면 `/health`)
 - 비밀값은 태스크 정의의 `secrets` 로 Secrets Manager / SSM Parameter Store 에서 주입
 - 최소 사양 기준점: 0.5 vCPU / 1GB (scikit-learn·numpy 로딩 여유). **실측값이 아니라 추정치입니다.**
 
-### Google Cloud Run
+### 5-3. Google Cloud Run
 
 ```bash
 gcloud builds submit --tag gcr.io/<PROJECT>/etf-answer-agent
 gcloud run deploy etf-agent \
   --image gcr.io/<PROJECT>/etf-answer-agent \
-  --port 8000 \
+  --port 8080 \
   --set-env-vars LLM_BACKEND=rule \
   --region asia-northeast3
 ```
 
-- Cloud Run 은 `PORT` 환경변수로 포트를 지정하므로, 포트를 8000 으로 고정하려면
-  `--port 8000` 을 명시하거나 `app.py` 가 `PORT` 를 읽도록 해야 합니다.
+- Cloud Run 은 `PORT` 환경변수를 컨테이너에 주입합니다. `docker-entrypoint.sh` 가 이를 읽어
+  Streamlit 서버 포트로 그대로 넘기므로 별도 처리가 필요 없습니다.
 - Cloud Run 은 컨테이너의 `HEALTHCHECK` 지시어를 쓰지 않고 자체 startup/liveness probe 를 씁니다.
 
 ---
@@ -176,7 +228,7 @@ docker push registry.internal/etf/etf-answer-agent:1.0.0
 **로컬 LLM 연결**
 
 ```bash
-docker run -d --name etf-agent -p 8000:8000 \
+docker run -d --name etf-agent -p 8080:8080 \
   -e LLM_BACKEND=local \
   -e LOCAL_BASE_URL=http://llm.internal:8000/v1 \
   -e LOCAL_MODEL=qwen2.5-7b-instruct \
@@ -206,7 +258,8 @@ LLM 엔드포인트에 닿지 못하면 `src/llm.py` 가 `LLMUnavailable` 을 �
 | ALB / Cloud Run | 타깃 그룹 · probe 경로를 `/health` 로 설정 |
 
 ```bash
-curl -f http://localhost:8000/health     # 200 이면 정상
+curl -f http://localhost:8080/_stcore/health   # Streamlit 모드 — 200 이면 정상
+curl -f http://localhost:8080/health           # APP_MODE=api 모드
 docker inspect --format '{{.State.Health.Status}}' etf-agent
 ```
 
