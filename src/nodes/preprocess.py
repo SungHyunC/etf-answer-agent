@@ -27,7 +27,9 @@ EXPERT_HINTS = ["괴리율", "추적오차", "리밸런싱", "정기변경", "�
 
 
 def normalize(text: str) -> tuple[str, list[tuple[str, str]]]:
-    out = text.strip()
+    # 배포 환경에서는 빈 입력·None 이 실제로 들어온다(폼 재전송, 잘린 요청 등).
+    # 여기서 죽으면 그래프 전체가 500 으로 떨어지므로 입구에서 흡수한다.
+    out = (text or "").strip()
     fixes: list[tuple[str, str]] = []
     for wrong, right in TYPO_MAP.items():
         if wrong in out:

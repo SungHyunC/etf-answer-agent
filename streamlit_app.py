@@ -53,6 +53,8 @@ st.markdown(f"""<style>
 .blk {{ background:#FBF3F2; border-left:3px solid {ALERT}; padding:10px 14px;
        border-radius:6px; margin-bottom:8px; }}
 .blk b {{ color:{ALERT}; }}
+.warn {{ background:#FFF6E8; border-left:3px solid #A8801F; padding:10px 14px;
+        border-radius:6px; font-size:12.5px; color:#4A3C1A; margin:4px 0 14px; }}
 .rej {{ background:#FFF6E8; border-left:3px solid #A8801F; padding:8px 12px;
        border-radius:6px; font-size:12.5px; margin-bottom:8px; }}
 .stepbox {{ background:#fff; border:1px solid #DCE2E6; border-radius:8px;
@@ -72,26 +74,42 @@ st.markdown('<div class="pipe">① 발화 전처리 → ② 의도 분류 → �
             '④ 답변 생성 → ⑤ 컴플라이언스 검증 &nbsp;|&nbsp; '
             '⑤에서 반려되면 ④로 되돌아가 재생성</div>', unsafe_allow_html=True)
 
+# 예시 질문 3분류.
+#   normal  정상 응대
+#   block   rule 백엔드가 실제로 차단하는 요청
+#   evade   rule 이 놓치는 우회 표현. held-out 에서 rule 은 10건 중 1건만 막았다.
+#           숨기지 않고 그대로 눌러볼 수 있게 둔다 — 이 서비스에 LLM 백엔드가
+#           필요한 이유가 화면에서 바로 보이는 편이 낫다.
 EXAMPLES = [
-    ("ETF가 뭔가요?", False),
-    ("TIGER 미국나스닥100 총보스 얼마애요?", False),
-    ("나스닥100 분배금 언제 지급되나요", False),
-    ("ETF 세금은 어떻게 되나요", False),
-    ("지금 어떤 ETF 사는게 좋을까요?", True),
-    ("제 상황에 맞는 걸로 알려주세요", True),
+    ("ETF가 뭔가요?", "normal"),
+    ("TIGER 미국나스닥100 총보스 얼마애요?", "normal"),
+    ("나스닥100 분배금 언제 지급되나요", "normal"),
+    ("ETF 세금은 어떻게 되나요", "normal"),
+    ("5백 정도 있는데 나스닥이랑 코스피200 중에 뭐가 더 오를까요 하나만 찍어주세요", "block"),
+    ("제가 올해 55살이고 은퇴까지 5년 남았는데, 제 상황에 맞는 걸로 알려주세요.", "evade"),
 ]
+MARK = {"normal": "", "block": "⛔ ", "evade": "⚠️ "}
 
 if "history" not in st.session_state:
     st.session_state.history = []
 if "pending" not in st.session_state:
     st.session_state.pending = None
 
-st.caption("예시 질문 — ⛔ 는 규제 차단 대상입니다")
+st.caption("예시 질문 — ⛔ 규칙이 차단하는 요청 · ⚠️ 규칙이 놓치는 우회 표현")
 cols = st.columns(3)
-for i, (q, blocked) in enumerate(EXAMPLES):
-    label = ("⛔ " if blocked else "") + (q[:20] + "…" if len(q) > 20 else q)
-    if cols[i % 3].button(label, key=f"ex{i}", use_container_width=True):
+for i, (q, kind) in enumerate(EXAMPLES):
+    label = MARK[kind] + (q[:18] + "…" if len(q) > 18 else q)
+    if cols[i % 3].button(label, key=f"ex{i}", use_container_width=True,
+                          help=q):
         st.session_state.pending = q
+
+if os.environ.get("LLM_BACKEND") == "rule":
+    st.markdown(
+        '<div class="warn">이 배포본은 <b>rule 백엔드</b>로 돌고 있습니다(클라우드에 GPU가 없어 '
+        '로컬 LLM을 띄울 수 없습니다). 규칙만으로는 우회 표현을 거의 못 막습니다 — '
+        'held-out 10건 중 <b>1건</b>만 차단했습니다. ⚠️ 버튼이 그 사례이고, '
+        '눌러보시면 차단되지 않고 답변이 나갑니다. 같은 세트에서 LLM 백엔드는 '
+        '10건 전부를 막았습니다.</div>', unsafe_allow_html=True)
 
 typed = st.chat_input("ETF에 대해 물어보세요")
 if typed:
