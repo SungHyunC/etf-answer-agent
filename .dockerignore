@@ -1,0 +1,40 @@
+# 빌드 컨텍스트에서 제외할 것들.
+# 이미지 크기보다 "비밀값이 이미지에 박히지 않게" 하는 목적이 더 크다.
+
+# 버전 관리 / CI
+.git
+.gitignore
+.github
+
+# 파이썬 캐시 · 가상환경
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# 로컬 비밀값 — 이미지에 절대 포함하지 않는다 (.env.example 은 그대로 둔다)
+.env
+
+# 문서 — 런타임에 필요 없다
+*.md
+LICENSE
+RESULTS.txt
+
+# 런타임 산출물 (컨테이너 안에서 새로 만들거나 볼륨으로 붙인다)
+logs/
+*.log
+
+# 에디터 · OS
+.idea/
+.vscode/
+.DS_Store
+
+# 컨테이너 정의 자신
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# tests/ 는 일부러 남긴다 — src/evaluate.py 가 런타임에 tests/eval_set.json 을 읽으므로
+# 컨테이너 안에서 평가 하네스를 돌리려면 함께 들어가야 한다.

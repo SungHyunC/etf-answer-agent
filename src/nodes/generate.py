@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from .. import llm
+from .. import prompts
 from ..state import AgentState
 
 REFUSAL = (
@@ -100,8 +101,10 @@ def run(state: AgentState) -> AgentState:
             f"[근거 자료]\n" + "\n\n".join(ctx) + retry_note
         )
         try:
-            draft = llm.complete(SYSTEM, user, temperature=0.1)
-            trace.append(f"④ 생성 · LLM · 근거 {len(ctx)}건")
+            # 프롬프트 변형은 src/prompts.py 에서 관리한다(PROMPT_VARIANT 환경변수로 전환).
+            system_prompt = prompts.get()["system"]
+            draft = llm.complete(system_prompt, user, temperature=0.1)
+            trace.append(f"④ 생성 · LLM({prompts.active()}) · 근거 {len(ctx)}건")
             return {**state, "draft": draft, "trace": trace}
         except Exception as e:
             trace.append(f"④ 생성 · LLM 실패({type(e).__name__}) → 템플릿 폴백")

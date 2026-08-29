@@ -1,0 +1,41 @@
+# 로컬 · 온프레미스 단일 호스트 실행용.
+#   docker compose up -d --build
+#   docker compose ps        (healthy 여부 확인)
+#   docker compose logs -f
+#
+# Compose v2 이므로 version: 키는 쓰지 않는다.
+services:
+  etf-agent:
+    build: .
+    image: etf-answer-agent:local
+    container_name: etf-agent
+    ports:
+      - "8000:8000"
+
+    # .env 가 있으면 읽고, 없으면 그냥 넘어간다 (Compose v2.24+ 의 required 옵션).
+    # 구버전 Compose 라면 이 블록을 지우고 `env_file: [.env]` 로 바꾼 뒤 파일을 만들어야 한다.
+    env_file:
+      - path: .env
+        required: false
+
+    # env_file 보다 우선한다. 값을 비워두면 rule 백엔드로 뜬다.
+    environment:
+      LLM_BACKEND: ${LLM_BACKEND:-rule}
+
+    # 애플리케이션 로그·감사 기록을 호스트에 남긴다.
+    volumes:
+      - ./logs:/app/logs
+
+    restart: unless-stopped
+
+    # Dockerfile 의 HEALTHCHECK 와 동일한 판정을 compose 쪽에도 명시해 둔다.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3

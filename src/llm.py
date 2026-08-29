@@ -25,8 +25,9 @@ def _client():
     if Config.BACKEND == "openai":
         if not Config.OPENAI_API_KEY:
             raise LLMUnavailable("OPENAI_API_KEY 가 설정되지 않았습니다.")
-        return OpenAI(api_key=Config.OPENAI_API_KEY), Config.OPENAI_MODEL
-    return OpenAI(base_url=Config.LOCAL_BASE_URL, api_key=Config.LOCAL_API_KEY), Config.LOCAL_MODEL
+        return OpenAI(api_key=Config.OPENAI_API_KEY, timeout=Config.LLM_TIMEOUT), Config.OPENAI_MODEL
+    return OpenAI(base_url=Config.LOCAL_BASE_URL, api_key=Config.LOCAL_API_KEY,
+                  timeout=Config.LLM_TIMEOUT), Config.LOCAL_MODEL
 
 
 def available() -> bool:

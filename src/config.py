@@ -14,8 +14,11 @@ class Config:
     OPENAI_MODEL = _env("OPENAI_MODEL", "gpt-4o-mini")
 
     LOCAL_BASE_URL = _env("LOCAL_BASE_URL", "http://localhost:11434/v1")
-    LOCAL_MODEL = _env("LOCAL_MODEL", "qwen2.5:7b-instruct")
+    LOCAL_MODEL = _env("LOCAL_MODEL", "qwen2.5:14b-instruct")
     LOCAL_API_KEY = _env("LOCAL_API_KEY", "not-needed")
+
+    # LLM 호출 타임아웃(초) — 로컬 GPU 추론은 수십 초가 걸릴 수 있다.
+    LLM_TIMEOUT = float(_env("LLM_TIMEOUT", "120"))
 
     # 컴플라이언스 게이트 재생성 최대 횟수
     MAX_REGENERATE = 2
