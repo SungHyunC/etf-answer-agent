@@ -1,4 +1,9 @@
-"""CLI 데모 — python cli.py  (대화형)  |  python cli.py "질문"  (단발)"""
+"""CLI 데모.
+
+    python cli.py                       대화형 (데모 시나리오 후 입력 대기)
+    python cli.py "질문"                단발 실행
+    python cli.py --no-trace "질문"     처리 경로 없이 답변만 (이해관계자 시연용)
+"""
 from __future__ import annotations
 
 import sys
@@ -22,13 +27,19 @@ def show(q: str, trace: bool = True) -> None:
 
 
 def main() -> None:
+    args = sys.argv[1:]
+    show_trace = True
+    if "--no-trace" in args:            # 비개발 이해관계자에게 최종 답변만 보여줄 때
+        show_trace = False
+        args = [a for a in args if a != "--no-trace"]
+
     print("=" * 70)
     print("  ETF Answer Agent — 프로토타입")
     print(f"  백엔드: {backend_info()}")
     print("=" * 70)
 
-    if len(sys.argv) > 1:
-        show(" ".join(sys.argv[1:]))
+    if args:
+        show(" ".join(args), trace=show_trace)
         return
 
     demo = [
@@ -40,7 +51,7 @@ def main() -> None:
     ]
     print("\n[데모 시나리오 실행]")
     for q in demo:
-        show(q)
+        show(q, trace=show_trace)
 
     print("\n[대화 모드] 종료하려면 빈 줄 또는 'exit'")
     while True:
@@ -50,7 +61,7 @@ def main() -> None:
             break
         if not q or q.lower() in ("exit", "quit"):
             break
-        show(q)
+        show(q, trace=show_trace)
     print("종료합니다.")
 
 
