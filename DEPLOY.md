@@ -140,7 +140,7 @@ streamlit run streamlit_app.py
    - Repository: `SungHyunC/etf-answer-agent`
    - Branch: `main`
    - Main file path: `streamlit_app.py`
-4. **Deploy** → 2~4분 빌드 후 `https://<앱이름>.streamlit.app` 발급
+4. **Deploy** → 2~4분 빌드 후 URL 발급. 이 저장소의 배포본: https://etf-answer-agent.streamlit.app
 
 **LLM 백엔드 전환(선택)** — 기본은 `rule` 이라 키 없이 뜬다.
 App settings → Secrets 에 아래를 붙여넣으면 `openai` 백엔드로 자동 전환된다.

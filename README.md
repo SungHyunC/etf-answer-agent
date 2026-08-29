@@ -8,7 +8,7 @@
 ![streamlit](https://img.shields.io/badge/Streamlit-Cloud-FF4B4B)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-**▶ 라이브 데모** — `배포 후 URL 기재` (Streamlit Community Cloud, `streamlit_app.py`)
+**▶ 라이브 데모** — https://etf-answer-agent.streamlit.app (Streamlit Community Cloud)
 키 없이 `rule` 백엔드로 동작합니다. 배포 절차는 [DEPLOY.md 5-1절](DEPLOY.md#5-1-streamlit-community-cloud-채택).
 
 **핵심은 컴플라이언스 반려 루프입니다.** 검증을 통과하지 못한 답변은 고객에게
