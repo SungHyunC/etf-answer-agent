@@ -1,195 +1,133 @@
 # ETF Answer Agent
 
-국내 자산운용사의 ETF 상담 챗봇 구축 사업 요구사항을 가정한 학습 프로젝트입니다.
-설계 단계에서 그린 5단계 파이프라인을 **LangGraph로 실제 구현**했습니다.
+**A Korean-language ETF question-answering prototype with retrieval, a LangGraph validation loop, and interchangeable model backends.**
 
-![python](https://img.shields.io/badge/python-3.10+-blue)
-![langgraph](https://img.shields.io/badge/LangGraph-0.2+-0F5C52)
-![streamlit](https://img.shields.io/badge/Streamlit-Cloud-FF4B4B)
-![license](https://img.shields.io/badge/license-MIT-green)
+[한국어](README.ko.md) · [Streamlit demo](https://etf-answer-agent.streamlit.app) · [Browser-only demo](https://sunghyunc.github.io/etf-answer-agent/) · [Evaluation report](TEST_REPORT.md)
 
-**▶ 라이브 데모** — https://etf-answer-agent.streamlit.app (Streamlit Community Cloud)
-키 없이 `rule` 백엔드로 동작합니다. 배포 절차는 [DEPLOY.md 5-1절](DEPLOY.md#5-1-streamlit-community-cloud-채택).
+Built as a learning project around a hypothetical asset-manager chatbot brief. The core engineering question is how to route questions to evidence, inspect generated answers, and retry rejected drafts before returning a response. The repository includes a no-key rule backend, local/OpenAI model adapters, two web interfaces, and evaluation tooling.
 
-**핵심은 컴플라이언스 반려 루프입니다.** 검증을 통과하지 못한 답변은 고객에게
-나가지 않고 생성 단계로 되돌아가 재생성됩니다. 이 관문을 프롬프트 지시가 아니라
-**그래프 구조로 강제**한 것이 이 프로젝트의 요점입니다.
+**All ETF records and documents are demo samples, not current product information or investment advice.** The checks are experimental and do not establish regulatory compliance.
 
-### 측정 결과 (held-out test — 규칙 튜닝에 쓰지 않은 세트)
+## What it demonstrates
 
-| 지표 | rule | local LLM |
-|---|---|---|
-| **규제 차단률** | 0.0% | **100.0%** |
-| 미검증 답변 고객 노출 | 0건 | **0건** |
-| 의도 분류 정확도 | 47.1% | 52.9% |
-| 핵심 사실 포함률 | 75.0% | 57.5% |
+- **Explicit workflow control:** five LangGraph nodes with a conditional validation → generation edge, up to two regenerations, and a fixed fallback when rejected drafts exhaust that budget.
+- **Retrieval by intent:** separate product, FAQ, and disclosure collections using character n-gram TF-IDF, alongside structured ETF records.
+- **Inspectable answers:** citations, intent labels, processing traces, and rejection details in the UI.
+- **Backend separation:** rule-only execution, a local OpenAI-compatible endpoint such as Ollama/vLLM, or OpenAI API calls.
+- **Evaluation and operations:** development/test datasets, prompt experiments, JSONL request events, feedback, latency summaries, and Prometheus-format metrics.
 
-> 지난 버전에서 보고한 "100%"는 **테스트셋을 보고 규칙을 고친 결과(과적합)** 였습니다.
-> held-out 세트로 다시 재니 규제 차단률이 **10%**였고, 구조를 고쳐 **100%**로 올렸습니다.
-> 자세한 경과는 [TEST_REPORT.md](TEST_REPORT.md) 참조.
+## Architecture
 
-**아직 실제 금융 서비스로 쓸 수준은 아닙니다** — 환각률 8.3%, 검색 정밀도 0.515가 남아 있습니다.
+```mermaid
+flowchart TD
+    P[Preprocess question] --> C[Classify intent]
+    C --> R[Retrieve evidence]
+    R --> G[Generate draft]
+    G --> V[Validate draft]
+    V -->|Pass| A[Return answer and citations]
+    V -->|Reject: retries remain| G
+    V -->|Retry budget exhausted| F[Return fixed fallback]
+```
 
-> ⚠️ ETF 데이터와 문서는 **데모용 샘플**이며 실제 상품 정보가 아닙니다.
-> 투자 판단의 근거로 사용할 수 없습니다.
+The validation node checks prohibited expressions and unsupported numerical claims. With an LLM backend enabled, the pipeline also performs question-level safety checks and an answer-faithfulness check. Traversing the gate does **not** guarantee factual accuracy: the checks can miss violations, and the optional faithfulness check currently skips its judgment when its model call fails.
 
----
+## Run locally
 
-## 1. 30초 실행
+Use Python 3.11, the version configured in CI and Docker. The following commands use a macOS/Linux shell:
 
 ```bash
-pip install -r requirements.txt
-streamlit run streamlit_app.py  # 대고객 UI — 배포본과 동일 → http://localhost:8501
-python cli.py            # CLI 데모 (시나리오 5건 자동 실행 후 대화 모드)
-python app.py            # JSON API + /health + /metrics → http://localhost:8000
-python -m src.evaluate   # 평가 하네스 (목표 지표 측정)
-python tests/test_pipeline.py   # 단위 검증
+git clone https://github.com/SungHyunC/etf-answer-agent.git
+cd etf-answer-agent
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+LLM_BACKEND=rule streamlit run streamlit_app.py
 ```
 
-**API 키가 없어도 그대로 돌아갑니다.** 기본 백엔드가 `rule`이기 때문입니다(아래 3절).
+Open [localhost:8501](http://localhost:8501). A fresh setup uses the rule backend without an API key. If Streamlit Secrets contains `OPENAI_API_KEY`, the Streamlit entrypoint selects the OpenAI backend instead.
 
----
+Example questions: `ETF가 뭔가요?`, `KODEX 200 구성종목 알려줘`, or `ETF 추천해주세요` to inspect a refusal path.
 
-## 2. 아키텍처
+Other entrypoints, run separately from the repository root:
 
-```
-고객 질문
-   │
-   ▼
-① 발화 전처리        오타 교정 · 엔티티(상품명) 식별 · 사용자 수준 판별
-   ▼
-② 의도 분류          etf_info / disclosure / faq / general / out_of_scope
-   ▼                 └ 규제 신호어는 항상 최우선 검사
-③ 기능별 검색        의도에 따라 담당 Vector Store만 조회
-   ▼                 ├ 상품 지식   (상품설명서·투자설명서·약관)
-   │                 ├ FAQ / VOC  (상담 이력 본문)
-   │                 ├ 공시 · 뉴스 (시점 정보)
-   │                 └ 정형 ETF DB (총보수·기초지수·구성종목)
-   ▼
-④ 답변 생성          검색 근거 안에서만 생성 · 출처 표기 · 수준별 서술
-   ▲                                    │
-   │  반려 → 재생성                       ▼
-   └──────────────── ⑤ 컴플라이언스 검증 게이트
-                            │ 통과
-                            ▼
-                     검증된 답변 + 근거
-```
-
-**⑤의 반려 루프가 이 설계의 핵심입니다.** 검증을 통과하지 못한 답변은 고객에게
-나가지 않고 ④로 되돌아가 재생성되며, 한도(2회) 초과 시 사전 승인된 안전 문구로
-대체됩니다. 자산운용사 대고객 채널에서 투자권유로 해석될 답변이 한 번이라도
-나가면 그것은 금융사고이므로, 이 관문을 프롬프트 지시가 아니라 **그래프 구조**로
-강제했습니다.
-
-### 파일 구조
-
-| 경로 | 역할 |
+| Command | Purpose |
 |---|---|
-| `src/graph.py` | LangGraph 조립 — 5노드 + 조건부 반려 엣지 |
-| `src/state.py` | 그래프 전역 상태 정의 |
-| `src/nodes/preprocess.py` | ① 오타 교정 · 엔티티 · 수준 판별 |
-| `src/nodes/classify.py` | ② 의도 분류 (규칙 + LLM 이중화) |
-| `src/nodes/retrieve.py` | ③ 창고 라우팅 검색 |
-| `src/nodes/generate.py` | ④ 근거 기반 생성 |
-| `src/nodes/compliance.py` | ⑤ 검증 게이트 · 규칙 C-01~C-08 |
-| `src/data/etf_db.py` | 정형 ETF 데이터 + 엔티티 사전 |
-| `src/data/knowledge.py` | 업무별 분리 문서 창고 3종 |
-| `src/data/vectorstore.py` | TF-IDF 기반 검색 |
-| `src/evaluate.py` | 목표 지표 측정 하네스 |
-| `app.py` / `cli.py` | 웹 · CLI 데모 |
+| `LLM_BACKEND=rule python cli.py` | Scripted examples followed by interactive questions |
+| `HOST=127.0.0.1 LLM_BACKEND=rule python app.py` | Local web UI and JSON API at port 8000 |
+| `python -m http.server 8080 --directory docs --bind 127.0.0.1` | Static JavaScript rule demo at port 8080; no Python pipeline dependencies needed |
 
----
+For the JSON API, submit questions to `POST /ask` as `{"q":"ETF가 뭔가요?"}`. The service also exposes `GET /health`, `GET /metrics`, `GET /metrics/prometheus`, and `POST /feedback`.
 
-## 3. 모델 선정 전략
+## Model configuration
 
-이 사업의 입찰 자격에는 **로컬 LLM 보유 및 구현 실적**이 포함됩니다.
-고객 문의 데이터를 외부 API로 전송하지 않는 구성을 요구한다는 뜻으로 읽었고,
-그래서 백엔드를 세 갈래로 분리해 **교체 가능**하게 만들었습니다.
-
-| `LLM_BACKEND` | 구성 | 용도 |
+| `LLM_BACKEND` | Configuration | Behavior |
 |---|---|---|
-| `rule` (기본) | LLM 호출 없음. 검색 근거를 규칙으로 요약 | 키 없이 즉시 시연 · 장애 시 폴백 |
-| `local` | 사내 폐쇄망 vLLM / Ollama (OpenAI 호환) | **운영 목표 구성** |
-| `openai` | OpenAI API | 성능 상한 비교용 |
+| `rule` (default) | No model credentials | TF-IDF retrieval and template-based responses |
+| `local` | `LOCAL_BASE_URL`, `LOCAL_MODEL`, `LOCAL_API_KEY` | OpenAI-compatible model server you run separately |
+| `openai` | `OPENAI_API_KEY`, optional `OPENAI_MODEL` | Remote model calls; questions and evidence are sent to the API |
 
-`local`과 `openai`는 동일한 OpenAI 호환 인터페이스를 쓰므로 **`base_url`과 `model`만
-바꾸면 전환**됩니다. 임베딩도 외부 API 대신 TF-IDF(char n-gram)를 써서 파이프라인
-전체가 망 외부와 통신하지 않고 동작합니다.
+For example, after starting a compatible local model server:
 
 ```bash
-cp .env.example .env    # 백엔드 전환은 이 파일에서
+LLM_BACKEND=local \
+LOCAL_BASE_URL=http://localhost:11434/v1 \
+LOCAL_MODEL=qwen2.5:14b-instruct \
+python cli.py
 ```
 
-한국어 오탈자와 조사 변형에 강하도록 형태소 분석기 없이 `char_wb` n-gram을 썼습니다.
-운영 단계에서는 `vectorstore.search()` 인터페이스를 유지한 채 사내 임베딩 모델로
-교체하면 됩니다.
+[`.env.example`](.env.example) lists configuration examples. Native Python entrypoints read the process environment; copying that file to `.env` alone does not load it. Docker Compose reads `.env`. See [deployment notes](DEPLOY.md) for container and hosting options.
 
----
+## Tests and evaluation
 
-## 4. 측정 결과
+```bash
+# Deterministic pipeline checks, including a forced rejection/retry path
+LLM_BACKEND=rule python tests/test_pipeline.py
 
-`python -m src.evaluate` 실행 결과입니다. (검증 Q&A 12건 · 규제 테스트 8건, `rule` 백엔드)
+# Original development examples; not an independent benchmark
+LLM_BACKEND=rule python -m src.evaluate
 
-| 지표 | 결과 | 목표 |
-|---|---|---|
-| 의도 분류 정확도 | **100.0%** | 90% |
-| 핵심 사실 포함률 | **100.0%** | 95% |
-| 규제 차단률 | **100.0%** | 100% |
-| 미검증 답변 고객 노출 | **0건** | 0건 |
+# Development split for iteration
+LLM_BACKEND=rule HOLDOUT_SPLIT=dev python -m src.eval.holdout
 
-### 지표를 바꾼 이유 (구현하면서 확인한 것)
+# Separate test split for evaluation
+LLM_BACKEND=rule HOLDOUT_SPLIT=test python -m src.eval.holdout
+```
 
-기획 단계에서 정확도 목표를 **"코사인 유사도 0.85 이상 답변 비율 95%"** 로 잡았습니다.
-구현해 보니 **이 목표는 도달 불가능한 수치였습니다.**
+[CI](.github/workflows/ci.yml) runs the pipeline checks, the original evaluation harness, and a Docker image build. The evaluation harness reports scores; a successful CI run is not a quality threshold guarantee.
 
-- TF-IDF char n-gram 코사인은 한국어 의역 간 상한이 대략 **0.6** 수준입니다.
-  같은 사실을 다르게 서술하면 어휘가 겹치지 않아 점수가 오르지 않습니다.
-- 0.85는 **임베딩 기반 유사도**를 전제했을 때 성립하는 값입니다.
-- 실측 평균 유사도는 0.412, 0.85 이상 비율은 0%였습니다.
+The [2026-08-29 report](TEST_REPORT.md) records the following historical test-split results for 17 intent/fact questions and 5 blocking questions:
 
-그래서 정확도 1차 지표를 **핵심 사실 포함률**(정답에 반드시 들어가야 할 사실 키워드가
-답변에 포함되었는가)로 바꾸고, 유사도는 참고 지표로 병기했습니다. 사실 포함률은
-서술 방식과 무관하게 **정보의 정확성만** 보므로 이 서비스의 목적에 더 맞습니다.
+| Metric | Rule backend | Local Qwen 2.5 14B |
+|---|---:|---:|
+| Intent accuracy | 47.1% | 52.9% |
+| Required-fact coverage | 75.0% | 57.5% |
+| Blocking on 5 designated questions | 0/5 | 5/5 |
 
-> 운영 단계에서 사내 임베딩 모델을 붙이면 유사도 기준을 다시 쓸 수 있습니다.
-> 그때 임계값은 실측 분포를 보고 재설정해야 합니다.
+These are small, author-created samples, not production benchmarks. Fact coverage uses string matching in rule mode and can use an LLM judge in model mode, so the scores are not directly equivalent. The report also documents test-set leakage in earlier results and a subsequent change that still needs a fresh held-out set. Treat these numbers as an experiment record, not verified results for the current revision.
 
----
+## Code map
 
-## 5. 구현 중 발견한 것
-
-**컴플라이언스 규칙이 자기 자신을 차단했습니다.** 범위 외 요청에 대한 거절문에
-`"투자권유자문인력과 상담해 주세요"` 라는 안내가 들어 있는데, 규칙 C-02
-`(투자)\s*(권유)` 가 여기에 걸렸습니다. `투자권유자문인력`은 자본시장법상 **직함**이지
-권유 행위가 아닙니다.
-
-→ 법정 용어를 검사 전에 마스킹하고, 준법 검토를 마친 정형 문구는 게이트를
-통과시키도록 고쳤습니다(`SAFE_TERMS`, `_approved_texts()`).
-
-규칙 기반 필터는 이런 오탐이 계속 나옵니다. 다음 단계에서 **LLM-as-a-Judge 2차 검증**을
-얹어 규칙과 교차 확인하는 구조로 보완할 계획입니다.
-
----
-
-## 6. 다음 단계
-
-| 항목 | 현재 상태 |
+| Path | Responsibility |
 |---|---|
-| 프롬프트 최적화 | `SYSTEM` 프롬프트 분리 완료 → A/B 실험 하네스 필요 |
-| 워크플로우 튜닝 | 그래프 노드 분리 완료 → 조건부 분기 확장 여지 |
-| 외부 API 확장 | 정형 DB 어댑터 인터페이스 준비됨 → 실 시세·공시 API 연동 |
-| UI/UX 통합 | Streamlit 대화형 UI(이력·근거 배지·처리경로) 완료 → 스트리밍 미구현 |
-| 배포 | Streamlit Community Cloud 배포 + 컨테이너화(`Dockerfile`) 완료 |
-| 모니터링 지표 | `monitoring.py` 온라인 수집 + `/metrics` · Prometheus 노출 완료 |
+| [`src/graph.py`](src/graph.py), [`src/state.py`](src/state.py) | Graph topology and state |
+| [`src/nodes/`](src/nodes/) | Preprocessing, classification, retrieval, generation, validation |
+| [`src/data/`](src/data/) | Sample ETF records, knowledge collections, TF-IDF retrieval |
+| [`src/llm.py`](src/llm.py), [`src/config.py`](src/config.py) | Model adapter and environment configuration |
+| [`src/eval/`](src/eval/), [`tests/`](tests/) | Held-out evaluation, prompt experiments, fixtures, pipeline checks |
+| [`src/monitoring.py`](src/monitoring.py) | Request events, feedback, metrics |
+| [`streamlit_app.py`](streamlit_app.py), [`app.py`](app.py), [`cli.py`](cli.py) | User and API entrypoints |
+| [`docs/`](docs/) | Separate browser-only JavaScript implementation and sample-data snapshot |
 
----
+## Current limitations
 
-## 7. 한계 (그대로 적습니다)
+- The corpus contains five sample ETF records and 17 documents, with no live market or disclosure feed.
+- Conversation history is displayed in the UI, but each graph invocation answers one question without prior-turn context.
+- The rule backend has poor generalization on the recorded blocking test. Model checks can also miss errors or overblock legitimate questions.
+- There is no authentication layer or validated financial-service deployment. The HTTP server is a development prototype; concurrent-load behavior has not been established in the report.
+- Request monitoring stores question excerpts in `logs/events.jsonl`; use sample questions when demonstrating the app.
 
-- ETF 데이터 5종·문서 17건은 **데모용 샘플**입니다. 수치는 예시값이며 실제 상품
-  정보가 아닙니다. 운영 시 발주사 원장 DB와 공시 피드에 연결해야 합니다.
-- `rule` 백엔드의 답변은 근거 문서를 규칙으로 요약한 것이라 자연스러운 대화체가
-  아닙니다. 자연어 품질은 `local` / `openai` 백엔드에서 나옵니다.
-- 컴플라이언스 규칙 8종은 대표 패턴만 담았습니다. 실제로는 준법감시 부서와
-  금지 표현 목록을 서면 확정해야 합니다(기획 단계에서 지적한 선결 리스크).
-- 멀티턴 대화 상태 관리는 미구현입니다. 현재는 단일 턴 질의응답입니다.
+Further reading: [Korean project notes](README.ko.md), [test report](TEST_REPORT.md), [raw recorded results](RESULTS.txt), [deployment guide](DEPLOY.md), [static demo guide](docs/README.md).
+
+## License
+
+[MIT](LICENSE).
