@@ -2,7 +2,7 @@
 
 **A Korean-language ETF question-answering prototype with retrieval, a LangGraph validation loop, and interchangeable model backends.**
 
-[한국어](README.ko.md) · [Streamlit demo](https://etf-answer-agent.streamlit.app) · [Browser-only demo](https://sunghyunc.github.io/etf-answer-agent/) · [Evaluation report](TEST_REPORT.md)
+[한국어](README.ko.md) · [Browser demo](https://sunghyunc.github.io/etf-answer-agent/) · [Streamlit demo](https://etf-answer-agent.streamlit.app) (may take a minute to wake up) · [Evaluation report](TEST_REPORT.md)
 
 Built as a learning project around a hypothetical asset-manager chatbot brief. The core engineering question is how to route questions to evidence, inspect generated answers, and retry rejected drafts before returning a response. The repository includes a no-key rule backend, local/OpenAI model adapters, two web interfaces, and evaluation tooling.
 
